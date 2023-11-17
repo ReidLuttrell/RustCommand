@@ -45,6 +45,7 @@ impl Default for InputState {
 enum ActorType {
     Cursor,
     Rocket,
+    Interceptor,
 }
 
 #[derive(Debug)]
@@ -54,17 +55,22 @@ struct Actor {
     initial_pos: Point2,
     angle: f32,
     life: f32,
+    elapsed: f32, // for interceptor
+    radius: f32, // for interceptor
 }
 
 const CURSOR_VEL: f32 = 400.0;
-const CURSOR_WIDTH: f32 = 40.0;
-const CURSOR_HEIGHT: f32 = 15.0;
+const CURSOR_WIDTH: f32 = 30.0;
+const CURSOR_HEIGHT: f32 = 7.5;
 
-const ROCKET_WIDTH: f32 = 15.0;
-const ROCKET_HEIGHT: f32 = 15.0;
+const ROCKET_WIDTH: f32 = 7.5;
+const ROCKET_HEIGHT: f32 = 7.5;
 
 const ROCKET_LIFE: f32 = 1.0;
 const GROUND_LIFE: f32 = 5.0;
+
+const INTERCEPTOR_BASE_RADIUS: f32 = 15.0;
+const INTERCEPTOR_PERIOD: f32 = 5.0;
 
 fn create_player_cursor() -> Actor {
     Actor {
@@ -73,6 +79,8 @@ fn create_player_cursor() -> Actor {
         initial_pos: Point2::ZERO,
         angle: 0.0,
         life: GROUND_LIFE,
+        elapsed: 0.0,
+        radius: 0.0,
     }
 }
 
@@ -83,6 +91,20 @@ fn create_rocket() -> Actor {
         initial_pos: Point2::ZERO,
         angle: 0.0,
         life: ROCKET_LIFE,
+        elapsed: 0.0,
+        radius: 0.0,
+    }
+}
+
+fn create_interceptor() -> Actor {
+    Actor {
+        tag: ActorType::Interceptor,
+        pos: Point2::ZERO,
+        initial_pos: Point2::ZERO,
+        angle: 0.0,
+        life: ROCKET_LIFE,
+        elapsed: INTERCEPTOR_PERIOD,
+        radius: INTERCEPTOR_BASE_RADIUS,
     }
 }
 
@@ -103,6 +125,7 @@ fn create_rockets(rng: &mut Rand32, num: i32, x: f32, y: f32) -> Vec<Actor> {
 }
 
 const ROCKET_VEL: f32 = 50.0;
+const SHOT_TIMEOUT: f32 = 0.5;
 
 fn check_cursor_bound(actor: &mut Actor, x: f32, y: f32) -> bool {
     let screen_x = x / 2.0;
@@ -137,12 +160,19 @@ fn rocket_move(actor: &mut Actor, dt: f32) {
     actor.pos += vec_from_angle(actor.angle) * ROCKET_VEL * dt;
 }
 
+fn interceptor_elapse(actor: &mut Actor, dt: f32) {
+    actor.elapsed -= dt * 3.0;
+    actor.radius = INTERCEPTOR_BASE_RADIUS * (-(((actor.elapsed - 2.5) * (actor.elapsed - 2.5)) / 2.5) + 2.5);
+}
+
 struct MainState {
     player: Actor,
     screen_width: f32,
     screen_height: f32,
     input: InputState,
     rockets: Vec<Actor>,
+    interceptors: Vec<Actor>,
+    shot_timeout: f32,
 }
 
 impl MainState {
@@ -163,6 +193,8 @@ impl MainState {
             screen_height: height,
             input: InputState::default(),
             rockets,
+            interceptors: Vec::new(),
+            shot_timeout: 0.0,
         };
 
         Ok(s)
@@ -177,16 +209,21 @@ impl MainState {
                 rocket.life = 0.0;
                 self.player.life -= 1.0;
             }
-            if rocket.pos.x  > screen_x || rocket.pos.x < -screen_x {
+            if rocket.pos.x  > screen_x || rocket.pos.x < -screen_x { // hit side
                 rocket.life = 0.0;
             }
         }
         Ok(())
     }
 
-    fn clear_dead_stuff(&mut self) {
-        self.rockets.retain(|r| r.life > 0.0);
+    fn fire_interceptor(&mut self) {
+        self.shot_timeout = SHOT_TIMEOUT;
+        let mut shot = create_interceptor();
+
+        shot.pos = self.player.pos;
+        self.interceptors.push(shot);
     }
+
 }
 
 fn draw_cursor(canvas: &mut graphics::Canvas, actor: &Actor, world_coords: (f32, f32)) {
@@ -229,6 +266,28 @@ fn draw_rocket(
     canvas.draw(&line, Vec2::new(0.0, 0.0));
 }
 
+fn draw_interceptor(
+    canvas: &mut graphics::Canvas,
+    ctx: &mut Context,
+    actor: &Actor,
+    world_coords: (f32, f32),
+) {
+    let (screen_w, screen_h) = world_coords;
+    let pos = world_to_screen_coords(screen_w, screen_h, actor.pos);
+
+    let circle = graphics::Mesh::new_circle(
+        ctx,
+        graphics::DrawMode::fill(),
+        pos,
+        actor.radius,
+        1.0,
+        Color::WHITE,
+    ).unwrap();
+
+    // Draw the circle mesh
+    canvas.draw(&circle, Vec2::new(0.0, 0.0));
+}
+
 impl EventHandler for MainState {
     fn update(&mut self, ctx: &mut Context) -> GameResult {
         const DESIRED_FPS: u32 = 60;
@@ -244,13 +303,24 @@ impl EventHandler for MainState {
                 seconds,
             );
 
+            self.shot_timeout -= seconds;
+
+            if self.input.fire && self.shot_timeout <= 0.0 {
+                self.fire_interceptor();
+            }
+
             for rocket in &mut self.rockets {
                 rocket_move(rocket, seconds);
             }
 
+            for interceptor in &mut self.interceptors {
+                interceptor_elapse(interceptor, seconds);
+            }
+
             self.handle_border_collisions()?;
 
-            self.clear_dead_stuff();
+            self.rockets.retain(|r| r.life > 0.0);
+            self.interceptors.retain(|i| i.elapsed > 0.0);
 
             if self.player.life <= 0.0 {
                 println!("game over!");
@@ -272,6 +342,10 @@ impl EventHandler for MainState {
 
             for rocket in &self.rockets {
                 draw_rocket(&mut canvas, ctx, rocket, coords);
+            }
+
+            for interceptor in &self.interceptors {
+                draw_interceptor(&mut canvas, ctx, interceptor, coords);
             }
         }
 
