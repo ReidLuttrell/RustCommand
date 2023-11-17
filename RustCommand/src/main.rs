@@ -53,14 +53,18 @@ struct Actor {
     pos: Point2,
     initial_pos: Point2,
     angle: f32,
+    life: f32,
 }
 
-const CURSOR_VEL: f32 = 200.0;
+const CURSOR_VEL: f32 = 400.0;
 const CURSOR_WIDTH: f32 = 40.0;
 const CURSOR_HEIGHT: f32 = 15.0;
 
 const ROCKET_WIDTH: f32 = 15.0;
 const ROCKET_HEIGHT: f32 = 15.0;
+
+const ROCKET_LIFE: f32 = 1.0;
+const GROUND_LIFE: f32 = 5.0;
 
 fn create_player_cursor() -> Actor {
     Actor {
@@ -68,6 +72,7 @@ fn create_player_cursor() -> Actor {
         pos: Point2::ZERO,
         initial_pos: Point2::ZERO,
         angle: 0.0,
+        life: GROUND_LIFE,
     }
 }
 
@@ -77,6 +82,7 @@ fn create_rocket() -> Actor {
         pos: Point2::ZERO,
         initial_pos: Point2::ZERO,
         angle: 0.0,
+        life: ROCKET_LIFE,
     }
 }
 
@@ -96,7 +102,7 @@ fn create_rockets(rng: &mut Rand32, num: i32, x: f32, y: f32) -> Vec<Actor> {
     (0..num).map(new_rocket).collect()
 }
 
-const ROCKET_VEL: f32 = 10.0;
+const ROCKET_VEL: f32 = 50.0;
 
 fn check_cursor_bound(actor: &mut Actor, x: f32, y: f32) -> bool {
     let screen_x = x / 2.0;
@@ -161,6 +167,26 @@ impl MainState {
 
         Ok(s)
     }
+
+    fn handle_border_collisions(&mut self) -> GameResult {
+        let screen_x = self.screen_width / 2.0;
+        let screen_y = self.screen_height / 2.0;
+
+        for rocket in &mut self.rockets {
+            if rocket.pos.y < -screen_y { // hit ground
+                rocket.life = 0.0;
+                self.player.life -= 1.0;
+            }
+            if rocket.pos.x  > screen_x || rocket.pos.x < -screen_x {
+                rocket.life = 0.0;
+            }
+        }
+        Ok(())
+    }
+
+    fn clear_dead_stuff(&mut self) {
+        self.rockets.retain(|r| r.life > 0.0);
+    }
 }
 
 fn draw_cursor(canvas: &mut graphics::Canvas, actor: &Actor, world_coords: (f32, f32)) {
@@ -198,10 +224,8 @@ fn draw_rocket(
         world_to_screen_coords(screen_w, screen_h, actor.pos),
     ];
 
-    // Create a mesh for the line
     let line = graphics::Mesh::new_line(ctx, points, 5.0, Color::GREEN).unwrap();
 
-    // Draw the line
     canvas.draw(&line, Vec2::new(0.0, 0.0));
 }
 
@@ -222,6 +246,15 @@ impl EventHandler for MainState {
 
             for rocket in &mut self.rockets {
                 rocket_move(rocket, seconds);
+            }
+
+            self.handle_border_collisions()?;
+
+            self.clear_dead_stuff();
+
+            if self.player.life <= 0.0 {
+                println!("game over!");
+                ctx.request_quit();
             }
         }
 
