@@ -3,9 +3,9 @@ use ggez::event::{self, EventHandler};
 use ggez::glam::*;
 use ggez::graphics::{self, Color};
 use ggez::input::keyboard::KeyCode;
+use ggez::input::keyboard::KeyInput;
 use ggez::timer;
 use ggez::{Context, ContextBuilder, GameResult};
-use ggez::input::keyboard::KeyInput;
 use oorandom::Rand32;
 use std::env;
 use std::path;
@@ -51,6 +51,7 @@ enum ActorType {
 struct Actor {
     tag: ActorType,
     pos: Point2,
+    initial_pos: Point2,
     angle: f32,
 }
 
@@ -65,6 +66,7 @@ fn create_player_cursor() -> Actor {
     Actor {
         tag: ActorType::Cursor,
         pos: Point2::ZERO,
+        initial_pos: Point2::ZERO,
         angle: 0.0,
     }
 }
@@ -73,6 +75,7 @@ fn create_rocket() -> Actor {
     Actor {
         tag: ActorType::Rocket,
         pos: Point2::ZERO,
+        initial_pos: Point2::ZERO,
         angle: 0.0,
     }
 }
@@ -86,6 +89,7 @@ fn create_rockets(rng: &mut Rand32, num: i32, x: f32, y: f32) -> Vec<Actor> {
         let start_pos = Vec2::new(rng.rand_float() * x - screen_x, screen_y);
         let angle = rng.rand_float() * 0.5 * std::f32::consts::PI + 0.75 * std::f32::consts::PI;
         rocket.pos = start_pos;
+        rocket.initial_pos = start_pos;
         rocket.angle = angle;
         rocket
     };
@@ -159,24 +163,25 @@ impl MainState {
     }
 }
 
-fn draw_cursor(
-    canvas: &mut graphics::Canvas,
-    actor: &Actor,
-    world_coords: (f32, f32),
-) {
+fn draw_cursor(canvas: &mut graphics::Canvas, actor: &Actor, world_coords: (f32, f32)) {
     let (screen_w, screen_h) = world_coords;
     let pos = world_to_screen_coords(screen_w, screen_h, actor.pos);
     let rect = graphics::Rect::new(pos.x, pos.y, CURSOR_WIDTH, CURSOR_HEIGHT);
-        canvas.draw(
-            &graphics::Quad,
-            graphics::DrawParam::new()
-                .dest(rect.point())
-                .scale(rect.size())
-                .color(Color::WHITE),
-        );
+    canvas.draw(
+        &graphics::Quad,
+        graphics::DrawParam::new()
+            .dest(rect.point())
+            .scale(rect.size())
+            .color(Color::WHITE),
+    );
 }
 
-fn draw_rocket(canvas: &mut graphics::Canvas, actor: &Actor, world_coords: (f32, f32)) {
+fn draw_rocket(
+    canvas: &mut graphics::Canvas,
+    ctx: &mut Context,
+    actor: &Actor,
+    world_coords: (f32, f32),
+) {
     let (screen_w, screen_h) = world_coords;
     let pos = world_to_screen_coords(screen_w, screen_h, actor.pos);
     let rect = graphics::Rect::new(pos.x, pos.y, ROCKET_WIDTH, ROCKET_HEIGHT);
@@ -187,7 +192,17 @@ fn draw_rocket(canvas: &mut graphics::Canvas, actor: &Actor, world_coords: (f32,
             .scale(rect.size())
             .color(Color::WHITE),
     );
-    let mb = &mut graphics::MeshBuilder::new();
+
+    let points = &[
+        world_to_screen_coords(screen_w, screen_h, actor.initial_pos),
+        world_to_screen_coords(screen_w, screen_h, actor.pos),
+    ];
+
+    // Create a mesh for the line
+    let line = graphics::Mesh::new_line(ctx, points, 5.0, Color::GREEN).unwrap();
+
+    // Draw the line
+    canvas.draw(&line, Vec2::new(0.0, 0.0));
 }
 
 impl EventHandler for MainState {
@@ -197,8 +212,14 @@ impl EventHandler for MainState {
         while ctx.time.check_update_time(DESIRED_FPS) {
             let seconds = 1.0 / (DESIRED_FPS as f32);
 
-            cursor_move(&mut self.player, self.screen_width, self.screen_height, &self.input, seconds);
-        
+            cursor_move(
+                &mut self.player,
+                self.screen_width,
+                self.screen_height,
+                &self.input,
+                seconds,
+            );
+
             for rocket in &mut self.rockets {
                 rocket_move(rocket, seconds);
             }
@@ -217,7 +238,7 @@ impl EventHandler for MainState {
             draw_cursor(&mut canvas, p, coords);
 
             for rocket in &self.rockets {
-                draw_rocket(&mut canvas, rocket, coords);
+                draw_rocket(&mut canvas, ctx, rocket, coords);
             }
         }
 
@@ -290,4 +311,4 @@ pub fn main() -> GameResult {
 
     let game = MainState::new(&mut ctx)?;
     event::run(ctx, events_loop, game)
-}   
+}
