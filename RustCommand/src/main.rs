@@ -59,6 +59,8 @@ struct Actor {
     radius: f32,  // for interceptor
 }
 
+const GROUND_HEIGHT: f32 = 150.0;
+
 const CURSOR_VEL: f32 = 600.0;
 const CURSOR_WIDTH: f32 = 20.0;
 const CURSOR_HEIGHT: f32 = 5.0;
@@ -128,7 +130,7 @@ fn check_cursor_bound(actor: &mut Actor, x: f32, y: f32) -> bool {
     if actor.pos.y > screen_y {
         actor.pos -= Vec2::new(0.0, 1.0);
         return false;
-    } else if actor.pos.y - CURSOR_HEIGHT < -screen_y {
+    } else if actor.pos.y - CURSOR_HEIGHT < -screen_y + GROUND_HEIGHT {
         actor.pos += Vec2::new(0.0, 1.0);
         return false;
     }
@@ -194,10 +196,14 @@ impl MainState {
         let screen_y = self.screen_height / 2.0;
 
         for rocket in &mut self.rockets {
-            if rocket.pos.y < -screen_y {
+            if rocket.pos.y < -screen_y + GROUND_HEIGHT {
                 // hit ground
                 rocket.life = 0.0;
                 self.player.life -= 1.0;
+
+                let mut explosion = create_interceptor();
+                explosion.pos = rocket.pos;
+                self.interceptors.push(explosion);
             }
             if rocket.pos.x > screen_x || rocket.pos.x < -screen_x {
                 // hit side
@@ -245,6 +251,18 @@ impl MainState {
         };
         (0..num).map(new_rocket).collect()
     }
+}
+
+fn draw_ground(canvas: &mut graphics::Canvas, world_coords: (f32, f32)) {
+    let (screen_w, screen_h) = world_coords;
+    let rect = graphics::Rect::new(0.0, screen_h - GROUND_HEIGHT, screen_w, GROUND_HEIGHT);
+    canvas.draw(
+        &graphics::Quad,
+        graphics::DrawParam::new()
+            .dest(rect.point())
+            .scale(rect.size())
+            .color(Color::WHITE),
+    );
 }
 
 fn draw_cursor(canvas: &mut graphics::Canvas, actor: &Actor, world_coords: (f32, f32)) {
@@ -386,6 +404,8 @@ impl EventHandler for MainState {
         {
             let coords = (self.screen_width, self.screen_height);
             let p = &self.player;
+
+            draw_ground(&mut canvas, coords);
 
             draw_cursor(&mut canvas, p, coords);
 
