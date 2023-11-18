@@ -56,12 +56,12 @@ struct Actor {
     angle: f32,
     life: f32,
     elapsed: f32, // for interceptor
-    radius: f32, // for interceptor
+    radius: f32,  // for interceptor
 }
 
-const CURSOR_VEL: f32 = 400.0;
-const CURSOR_WIDTH: f32 = 30.0;
-const CURSOR_HEIGHT: f32 = 7.5;
+const CURSOR_VEL: f32 = 600.0;
+const CURSOR_WIDTH: f32 = 20.0;
+const CURSOR_HEIGHT: f32 = 5.0;
 
 const ROCKET_WIDTH: f32 = 7.5;
 const ROCKET_HEIGHT: f32 = 7.5;
@@ -69,7 +69,7 @@ const ROCKET_HEIGHT: f32 = 7.5;
 const ROCKET_LIFE: f32 = 1.0;
 const GROUND_LIFE: f32 = 5.0;
 
-const INTERCEPTOR_BASE_RADIUS: f32 = 15.0;
+const INTERCEPTOR_BASE_RADIUS: f32 = 20.0;
 const INTERCEPTOR_PERIOD: f32 = 5.0;
 
 fn create_player_cursor() -> Actor {
@@ -108,23 +108,8 @@ fn create_interceptor() -> Actor {
     }
 }
 
-fn create_rockets(rng: &mut Rand32, num: i32, x: f32, y: f32) -> Vec<Actor> {
-    let screen_x = x / 2.0;
-    let screen_y = y / 2.0;
-
-    let new_rocket = |_| {
-        let mut rocket = create_rocket();
-        let start_pos = Vec2::new(rng.rand_float() * x - screen_x, screen_y);
-        let angle = rng.rand_float() * 0.5 * std::f32::consts::PI + 0.75 * std::f32::consts::PI;
-        rocket.pos = start_pos;
-        rocket.initial_pos = start_pos;
-        rocket.angle = angle;
-        rocket
-    };
-    (0..num).map(new_rocket).collect()
-}
-
-const ROCKET_VEL: f32 = 50.0;
+const ROCKET_VEL: f32 = 80.0;
+const ROCKET_DELAY: f32 = 4.0;
 const SHOT_TIMEOUT: f32 = 0.5;
 
 fn check_cursor_bound(actor: &mut Actor, x: f32, y: f32) -> bool {
@@ -161,8 +146,10 @@ fn rocket_move(actor: &mut Actor, dt: f32) {
 }
 
 fn interceptor_elapse(actor: &mut Actor, dt: f32) {
-    actor.elapsed -= dt * 3.0;
-    actor.radius = INTERCEPTOR_BASE_RADIUS * (-(((actor.elapsed - 2.5) * (actor.elapsed - 2.5)) / 2.5) + 2.5);
+    actor.elapsed -= dt * 3.0; // make it a tad faster
+                               // https://www.desmos.com/calculator/rwux8jpeud
+    actor.radius =
+        INTERCEPTOR_BASE_RADIUS * (-(((actor.elapsed - 2.5) * (actor.elapsed - 2.5)) / 2.5) + 2.5);
 }
 
 struct MainState {
@@ -173,6 +160,8 @@ struct MainState {
     rockets: Vec<Actor>,
     interceptors: Vec<Actor>,
     shot_timeout: f32,
+    rocket_delay: f32,
+    rng: Rand32,
 }
 
 impl MainState {
@@ -185,16 +174,16 @@ impl MainState {
 
         let (width, height) = ctx.gfx.drawable_size();
 
-        let rockets = create_rockets(&mut rng, 10, width, height);
-
         let s = MainState {
             player,
             screen_width: width,
             screen_height: height,
             input: InputState::default(),
-            rockets,
+            rockets: Vec::new(),
             interceptors: Vec::new(),
             shot_timeout: 0.0,
+            rocket_delay: ROCKET_DELAY,
+            rng,
         };
 
         Ok(s)
@@ -205,12 +194,26 @@ impl MainState {
         let screen_y = self.screen_height / 2.0;
 
         for rocket in &mut self.rockets {
-            if rocket.pos.y < -screen_y { // hit ground
+            if rocket.pos.y < -screen_y {
+                // hit ground
                 rocket.life = 0.0;
                 self.player.life -= 1.0;
             }
-            if rocket.pos.x  > screen_x || rocket.pos.x < -screen_x { // hit side
+            if rocket.pos.x > screen_x || rocket.pos.x < -screen_x {
+                // hit side
                 rocket.life = 0.0;
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_interceptions(&mut self) -> GameResult {
+        for rocket in &mut self.rockets {
+            for interceptor in &mut self.interceptors {
+                let dist = rocket.pos - interceptor.pos;
+                if dist.length() < interceptor.radius {
+                    rocket.life = 0.0;
+                }
             }
         }
         Ok(())
@@ -224,17 +227,50 @@ impl MainState {
         self.interceptors.push(shot);
     }
 
+    fn create_rockets(&mut self, num: u32, x: f32, y: f32) -> Vec<Actor> {
+        self.rocket_delay = ROCKET_DELAY;
+
+        let screen_x = x / 2.0;
+        let screen_y = y / 2.0;
+
+        let new_rocket = |_| {
+            let mut rocket = create_rocket();
+            let start_pos = Vec2::new(self.rng.rand_float() * x - screen_x, screen_y);
+            let angle =
+                self.rng.rand_float() * 0.5 * std::f32::consts::PI + 0.75 * std::f32::consts::PI;
+            rocket.pos = start_pos;
+            rocket.initial_pos = start_pos;
+            rocket.angle = angle;
+            rocket
+        };
+        (0..num).map(new_rocket).collect()
+    }
 }
 
 fn draw_cursor(canvas: &mut graphics::Canvas, actor: &Actor, world_coords: (f32, f32)) {
     let (screen_w, screen_h) = world_coords;
     let pos = world_to_screen_coords(screen_w, screen_h, actor.pos);
-    let rect = graphics::Rect::new(pos.x, pos.y, CURSOR_WIDTH, CURSOR_HEIGHT);
+    let rect1 = graphics::Rect::new(pos.x, pos.y, CURSOR_WIDTH, CURSOR_HEIGHT);
     canvas.draw(
         &graphics::Quad,
         graphics::DrawParam::new()
-            .dest(rect.point())
-            .scale(rect.size())
+            .dest(rect1.point())
+            .scale(rect1.size())
+            .color(Color::WHITE),
+    );
+
+    let rect2 = graphics::Rect::new(
+        pos.x + CURSOR_WIDTH / 2.0 - CURSOR_HEIGHT / 2.0,
+        pos.y + CURSOR_HEIGHT / 2.0 - CURSOR_WIDTH / 2.0,
+        CURSOR_HEIGHT,
+        CURSOR_WIDTH,
+    );
+
+    canvas.draw(
+        &graphics::Quad,
+        graphics::DrawParam::new()
+            .dest(rect2.point())
+            .scale(rect2.size())
             .color(Color::WHITE),
     );
 }
@@ -280,9 +316,10 @@ fn draw_interceptor(
         graphics::DrawMode::fill(),
         pos,
         actor.radius,
-        1.0,
+        10.0, // for weird pixellation action
         Color::WHITE,
-    ).unwrap();
+    )
+    .unwrap();
 
     // Draw the circle mesh
     canvas.draw(&circle, Vec2::new(0.0, 0.0));
@@ -309,6 +346,14 @@ impl EventHandler for MainState {
                 self.fire_interceptor();
             }
 
+            self.rocket_delay -= seconds;
+
+            if self.rocket_delay <= 0.0 {
+                for rocket in self.create_rockets(4, self.screen_width, self.screen_height) {
+                    self.rockets.push(rocket);
+                }
+            }
+
             for rocket in &mut self.rockets {
                 rocket_move(rocket, seconds);
             }
@@ -318,6 +363,7 @@ impl EventHandler for MainState {
             }
 
             self.handle_border_collisions()?;
+            self.handle_interceptions()?;
 
             self.rockets.retain(|r| r.life > 0.0);
             self.interceptors.retain(|i| i.elapsed > 0.0);
@@ -411,7 +457,7 @@ pub fn main() -> GameResult {
 
     let cb = ContextBuilder::new("rustcommand", "Reid Luttrell")
         .window_setup(conf::WindowSetup::default().title("RustCommand"))
-        .window_mode(conf::WindowMode::default().dimensions(1280.0, 960.0))
+        .window_mode(conf::WindowMode::default().dimensions(1280.0, 760.0))
         .add_resource_path(resource_dir);
 
     let (mut ctx, events_loop) = cb.build()?;
