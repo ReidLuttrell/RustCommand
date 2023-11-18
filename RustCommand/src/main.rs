@@ -282,6 +282,18 @@ fn draw_rocket(
     world_coords: (f32, f32),
 ) {
     let (screen_w, screen_h) = world_coords;
+
+    let endpoint = Vec2::new(actor.pos.x + ROCKET_WIDTH / 2.0, actor.pos.y - ROCKET_HEIGHT / 2.0);
+
+    let points = &[
+        world_to_screen_coords(screen_w, screen_h, actor.initial_pos),
+        world_to_screen_coords(screen_w, screen_h, endpoint),
+    ];
+
+    let line = graphics::Mesh::new_line(ctx, points, 5.0, Color::GREEN).unwrap();
+
+    canvas.draw(&line, Vec2::new(0.0, 0.0));
+
     let pos = world_to_screen_coords(screen_w, screen_h, actor.pos);
     let rect = graphics::Rect::new(pos.x, pos.y, ROCKET_WIDTH, ROCKET_HEIGHT);
     canvas.draw(
@@ -291,15 +303,6 @@ fn draw_rocket(
             .scale(rect.size())
             .color(Color::WHITE),
     );
-
-    let points = &[
-        world_to_screen_coords(screen_w, screen_h, actor.initial_pos),
-        world_to_screen_coords(screen_w, screen_h, actor.pos),
-    ];
-
-    let line = graphics::Mesh::new_line(ctx, points, 5.0, Color::GREEN).unwrap();
-
-    canvas.draw(&line, Vec2::new(0.0, 0.0));
 }
 
 fn draw_interceptor(
