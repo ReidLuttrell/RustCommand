@@ -12,11 +12,15 @@ use std::path;
 
 type Point2 = Vec2;
 
+// convert an angle into a vector, from ggez example
+
 fn vec_from_angle(angle: f32) -> Vec2 {
     let vx = angle.sin();
     let vy = angle.cos();
     Vec2::new(vx, vy)
 }
+
+// get screen coordinates from world coordinates, from ggez example
 
 fn world_to_screen_coords(screen_width: f32, screen_height: f32, point: Point2) -> Point2 {
     let x = point.x + screen_width / 2.0;
@@ -42,15 +46,7 @@ impl Default for InputState {
 }
 
 #[derive(Debug)]
-enum ActorType {
-    Cursor,
-    Rocket,
-    Interceptor,
-}
-
-#[derive(Debug)]
 struct Actor {
-    tag: ActorType,
     pos: Point2,
     initial_pos: Point2,
     angle: f32,
@@ -76,7 +72,6 @@ const INTERCEPTOR_PERIOD: f32 = 5.0;
 
 fn create_player_cursor() -> Actor {
     Actor {
-        tag: ActorType::Cursor,
         pos: Point2::ZERO,
         initial_pos: Point2::ZERO,
         angle: 0.0,
@@ -88,7 +83,6 @@ fn create_player_cursor() -> Actor {
 
 fn create_rocket() -> Actor {
     Actor {
-        tag: ActorType::Rocket,
         pos: Point2::ZERO,
         initial_pos: Point2::ZERO,
         angle: 0.0,
@@ -100,7 +94,6 @@ fn create_rocket() -> Actor {
 
 fn create_interceptor() -> Actor {
     Actor {
-        tag: ActorType::Interceptor,
         pos: Point2::ZERO,
         initial_pos: Point2::ZERO,
         angle: 0.0,
@@ -114,6 +107,7 @@ const ROCKET_VEL: f32 = 80.0;
 const ROCKET_DELAY: f32 = 4.0;
 const SHOT_TIMEOUT: f32 = 0.5;
 
+// Prevents the cursor from going out of bounds
 fn check_cursor_bound(actor: &mut Actor, x: f32, y: f32) -> bool {
     let screen_x = x / 2.0;
     let screen_y = y / 2.0;
@@ -137,19 +131,26 @@ fn check_cursor_bound(actor: &mut Actor, x: f32, y: f32) -> bool {
     return true;
 }
 
+// Move the cursor based on the input supplied
 fn cursor_move(actor: &mut Actor, x: f32, y: f32, input: &InputState, dt: f32) {
     if check_cursor_bound(actor, x, y) {
         actor.pos += Vec2::new(input.xaxis * CURSOR_VEL * dt, input.yaxis * CURSOR_VEL * dt);
     }
 }
 
+// Move the rocket based on its angle and velocity
 fn rocket_move(actor: &mut Actor, dt: f32) {
     actor.pos += vec_from_angle(actor.angle) * ROCKET_VEL * dt;
 }
 
+// Keep track of the lifetime of each interceptor, in order to
+// facilitate the explosion animation and keep track of lifetime
 fn interceptor_elapse(actor: &mut Actor, dt: f32) {
     actor.elapsed -= dt * 3.0; // make it a tad faster
+
                                // https://www.desmos.com/calculator/rwux8jpeud
+                               // Model explosion radius with this function I randomly came up with
+                               // by messing around in desmos until it had the behavior I wanted
     actor.radius =
         INTERCEPTOR_BASE_RADIUS * (-(((actor.elapsed - 2.5) * (actor.elapsed - 2.5)) / 2.5) + 2.5);
 }
@@ -164,13 +165,14 @@ struct MainState {
     shot_timeout: f32,
     rocket_delay: f32,
     rng: Rand32,
+    score: i32,
 }
 
 impl MainState {
     fn new(ctx: &mut Context) -> GameResult<MainState> {
         let mut seed: [u8; 8] = [0; 8];
         getrandom::getrandom(&mut seed[..]).expect("Could not create RNG seed");
-        let mut rng = Rand32::new(u64::from_ne_bytes(seed));
+        let rng = Rand32::new(u64::from_ne_bytes(seed));
 
         let player = create_player_cursor();
 
@@ -186,45 +188,49 @@ impl MainState {
             shot_timeout: 0.0,
             rocket_delay: ROCKET_DELAY,
             rng,
+            score: 0,
         };
 
         Ok(s)
     }
 
+    // Handle the case where a missile hits the side of the screen or the ground
     fn handle_border_collisions(&mut self) -> GameResult {
         let screen_x = self.screen_width / 2.0;
         let screen_y = self.screen_height / 2.0;
 
         for rocket in &mut self.rockets {
-            if rocket.pos.y < -screen_y + GROUND_HEIGHT {
-                // hit ground
-                rocket.life = 0.0;
-                self.player.life -= 1.0;
+            if rocket.pos.y < -screen_y + GROUND_HEIGHT { // hit ground
+                rocket.life = 0.0; // kill missile
+                self.player.life -= 1.0; // damage player
 
+                // make explosion by recycling the interceptor code
                 let mut explosion = create_interceptor();
                 explosion.pos = rocket.pos;
                 self.interceptors.push(explosion);
             }
-            if rocket.pos.x > screen_x || rocket.pos.x < -screen_x {
-                // hit side
-                rocket.life = 0.0;
+            if rocket.pos.x > screen_x || rocket.pos.x < -screen_x { // hit side
+                rocket.life = 0.0; // kill missile
             }
         }
         Ok(())
     }
 
+    // Handle collisions between interceptors and missiles
     fn handle_interceptions(&mut self) -> GameResult {
         for rocket in &mut self.rockets {
             for interceptor in &mut self.interceptors {
                 let dist = rocket.pos - interceptor.pos;
-                if dist.length() < interceptor.radius {
-                    rocket.life = 0.0;
+                if dist.length() < interceptor.radius { // collision
+                    rocket.life = 0.0; // kill rocket, interceptor will be killed by elapse system
+                    self.score += 150;
                 }
             }
         }
         Ok(())
     }
 
+    // Fire a new interceptor by adding it to state
     fn fire_interceptor(&mut self) {
         self.shot_timeout = SHOT_TIMEOUT;
         let mut shot = create_interceptor();
@@ -233,6 +239,7 @@ impl MainState {
         self.interceptors.push(shot);
     }
 
+    // create a wave of rockets, adapted from the ggez example create_rock method
     fn create_rockets(&mut self, num: u32, x: f32, y: f32) -> Vec<Actor> {
         self.rocket_delay = ROCKET_DELAY;
 
@@ -241,7 +248,10 @@ impl MainState {
 
         let new_rocket = |_| {
             let mut rocket = create_rocket();
+            // random starting pos at top of screen
             let start_pos = Vec2::new(self.rng.rand_float() * x - screen_x, screen_y);
+            // generate a random angle between 0.75 PI and 1.25 PI
+            // an angle of PI sends the rocket straight downward
             let angle =
                 self.rng.rand_float() * 0.5 * std::f32::consts::PI + 0.75 * std::f32::consts::PI;
             rocket.pos = start_pos;
@@ -301,19 +311,25 @@ fn draw_rocket(
 ) {
     let (screen_w, screen_h) = world_coords;
 
-    let endpoint = Vec2::new(actor.pos.x + ROCKET_WIDTH / 2.0, actor.pos.y - ROCKET_HEIGHT / 2.0);
+    let endpoint = Vec2::new(
+        actor.pos.x + ROCKET_WIDTH / 2.0,
+        actor.pos.y - ROCKET_HEIGHT / 2.0,
+    );
 
     let points = &[
         world_to_screen_coords(screen_w, screen_h, actor.initial_pos),
         world_to_screen_coords(screen_w, screen_h, endpoint),
     ];
 
+    // tracer line
     let line = graphics::Mesh::new_line(ctx, points, 5.0, Color::GREEN).unwrap();
 
     canvas.draw(&line, Vec2::new(0.0, 0.0));
 
     let pos = world_to_screen_coords(screen_w, screen_h, actor.pos);
     let rect = graphics::Rect::new(pos.x, pos.y, ROCKET_WIDTH, ROCKET_HEIGHT);
+
+    // rocket body
     canvas.draw(
         &graphics::Quad,
         graphics::DrawParam::new()
@@ -332,18 +348,58 @@ fn draw_interceptor(
     let (screen_w, screen_h) = world_coords;
     let pos = world_to_screen_coords(screen_w, screen_h, actor.pos);
 
+    let points = &[
+        Vec2::new(screen_w / 2.0, screen_h - GROUND_HEIGHT),
+        world_to_screen_coords(screen_w, screen_h, actor.pos),
+    ];
+
+    let tracer_color: Color = Color::new(255.0, 255.0, 255.0, actor.elapsed / INTERCEPTOR_PERIOD);
+    // tracer line
+    let line = graphics::Mesh::new_line(ctx, points, 5.0, tracer_color).unwrap();
+
+    canvas.draw(&line, Vec2::new(0.0, 0.0));
+
     let circle = graphics::Mesh::new_circle(
         ctx,
         graphics::DrawMode::fill(),
         pos,
         actor.radius,
-        10.0, // for weird pixellation action
+        10.0, // for weird pixellated polygon action
         Color::WHITE,
     )
     .unwrap();
 
-    // Draw the circle mesh
+    // explosion
     canvas.draw(&circle, Vec2::new(0.0, 0.0));
+}
+
+const HEALTHBAR_WIDTH: f32 = 200.0;
+const HEALTHBAR_HEIGHT: f32 = 50.0;
+
+fn draw_healthbar(canvas: &mut graphics::Canvas, actor: &Actor, world_coords: (f32, f32)) {
+    let (screen_w, screen_h) = world_coords;
+    
+    let container = graphics::Rect::new(25.0, screen_h - 75.0, HEALTHBAR_WIDTH, HEALTHBAR_HEIGHT);
+    
+    let bar_width = (actor.life / GROUND_LIFE) * (HEALTHBAR_WIDTH - 10.0);
+    let bar_color = Color::new((255.0 - ((actor.life / GROUND_LIFE) * 255.0)) / 255.0, ((actor.life / GROUND_LIFE) * 255.0) / 255.0, 0.0, 1.0);
+    let health_bar = graphics::Rect::new(25.0 + 5.0, screen_h - 75.0 + 5.0, bar_width, HEALTHBAR_HEIGHT - 10.0);
+    
+    canvas.draw(
+        &graphics::Quad,
+        graphics::DrawParam::new()
+            .dest(container.point())
+            .scale(container.size())
+            .color(Color::BLACK),
+    );
+
+    canvas.draw(
+        &graphics::Quad,
+        graphics::DrawParam::new()
+            .dest(health_bar.point())
+            .scale(health_bar.size())
+            .color(bar_color),
+    );
 }
 
 impl EventHandler for MainState {
@@ -386,11 +442,13 @@ impl EventHandler for MainState {
             self.handle_border_collisions()?;
             self.handle_interceptions()?;
 
+            // kill dead missiles and elapsed interceptors
             self.rockets.retain(|r| r.life > 0.0);
             self.interceptors.retain(|i| i.elapsed > 0.0);
 
             if self.player.life <= 0.0 {
-                println!("game over!");
+                println!("Game Over!");
+                println!("Score: {}", self.score);
                 ctx.request_quit();
             }
         }
@@ -416,7 +474,16 @@ impl EventHandler for MainState {
             for interceptor in &self.interceptors {
                 draw_interceptor(&mut canvas, ctx, interceptor, coords);
             }
+
+            draw_healthbar(&mut canvas, p, coords);
         }
+
+        canvas.draw(
+            &graphics::Text::new(format!("Score: {}", self.score)),
+            graphics::DrawParam::new()
+                .dest(Vec2::new(self.screen_width / 2.0, 10.0))
+                .color(Color::WHITE),
+        );
 
         canvas.finish(ctx)?;
 
@@ -424,6 +491,7 @@ impl EventHandler for MainState {
         Ok(())
     }
 
+    // input handler keydown adapted from ggez example
     fn key_down_event(
         &mut self,
         ctx: &mut Context,
@@ -452,6 +520,7 @@ impl EventHandler for MainState {
         Ok(())
     }
 
+    // input handler keyup adapted from ggez example
     fn key_up_event(&mut self, _ctx: &mut Context, input: KeyInput) -> GameResult {
         match input.keycode {
             Some(KeyCode::Up | KeyCode::Down) => {
