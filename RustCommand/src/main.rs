@@ -353,7 +353,7 @@ fn draw_interceptor(
         world_to_screen_coords(screen_w, screen_h, actor.pos),
     ];
 
-    let tracer_color: Color = Color::new(255.0, 255.0, 255.0, actor.elapsed / INTERCEPTOR_PERIOD);
+    let tracer_color: Color = Color::new(1.0, 1.0, 1.0, actor.elapsed / INTERCEPTOR_PERIOD);
     // tracer line
     let line = graphics::Mesh::new_line(ctx, points, 5.0, tracer_color).unwrap();
 
@@ -376,9 +376,7 @@ fn draw_interceptor(
 const HEALTHBAR_WIDTH: f32 = 200.0;
 const HEALTHBAR_HEIGHT: f32 = 50.0;
 
-fn draw_healthbar(canvas: &mut graphics::Canvas, actor: &Actor, world_coords: (f32, f32)) {
-    let (screen_w, screen_h) = world_coords;
-    
+fn draw_healthbar(canvas: &mut graphics::Canvas, actor: &Actor, screen_h: f32) {
     let container = graphics::Rect::new(25.0, screen_h - 75.0, HEALTHBAR_WIDTH, HEALTHBAR_HEIGHT);
     
     let bar_width = (actor.life / GROUND_LIFE) * (HEALTHBAR_WIDTH - 10.0);
@@ -475,7 +473,7 @@ impl EventHandler for MainState {
                 draw_interceptor(&mut canvas, ctx, interceptor, coords);
             }
 
-            draw_healthbar(&mut canvas, p, coords);
+            draw_healthbar(&mut canvas, p, coords.1);
         }
 
         canvas.draw(
