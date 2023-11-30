@@ -128,7 +128,7 @@ fn check_cursor_bound(actor: &mut Actor, x: f32, y: f32) -> bool {
         actor.pos += Vec2::new(0.0, 1.0);
         return false;
     }
-    return true;
+    true
 }
 
 // Move the cursor based on the input supplied
@@ -148,9 +148,9 @@ fn rocket_move(actor: &mut Actor, dt: f32) {
 fn interceptor_elapse(actor: &mut Actor, dt: f32) {
     actor.elapsed -= dt * 3.0; // make it a tad faster
 
-                               // https://www.desmos.com/calculator/rwux8jpeud
-                               // Model explosion radius with this function I randomly came up with
-                               // by messing around in desmos until it had the behavior I wanted
+    // https://www.desmos.com/calculator/rwux8jpeud
+    // Model explosion radius with this function I randomly came up with
+    // by messing around in desmos until it had the behavior I wanted
     actor.radius =
         INTERCEPTOR_BASE_RADIUS * (-(((actor.elapsed - 2.5) * (actor.elapsed - 2.5)) / 2.5) + 2.5);
 }
@@ -170,6 +170,11 @@ struct MainState {
 
 impl MainState {
     fn new(ctx: &mut Context) -> GameResult<MainState> {
+        println!("RustCommand Instructions:");
+        println!("Use arrow keys to move cursor");
+        println!("Use space to fire an interceptor");
+
+        // rng generator from ggez example
         let mut seed: [u8; 8] = [0; 8];
         getrandom::getrandom(&mut seed[..]).expect("Could not create RNG seed");
         let rng = Rand32::new(u64::from_ne_bytes(seed));
@@ -200,7 +205,8 @@ impl MainState {
         let screen_y = self.screen_height / 2.0;
 
         for rocket in &mut self.rockets {
-            if rocket.pos.y < -screen_y + GROUND_HEIGHT { // hit ground
+            if rocket.pos.y < -screen_y + GROUND_HEIGHT {
+                // hit ground
                 rocket.life = 0.0; // kill missile
                 self.player.life -= 1.0; // damage player
 
@@ -209,7 +215,8 @@ impl MainState {
                 explosion.pos = rocket.pos;
                 self.interceptors.push(explosion);
             }
-            if rocket.pos.x > screen_x || rocket.pos.x < -screen_x { // hit side
+            if rocket.pos.x > screen_x || rocket.pos.x < -screen_x {
+                // hit side
                 rocket.life = 0.0; // kill missile
             }
         }
@@ -221,7 +228,8 @@ impl MainState {
         for rocket in &mut self.rockets {
             for interceptor in &mut self.interceptors {
                 let dist = rocket.pos - interceptor.pos;
-                if dist.length() < interceptor.radius { // collision
+                if dist.length() < interceptor.radius {
+                    // collision
                     rocket.life = 0.0; // kill rocket, interceptor will be killed by elapse system
                     self.score += 150;
                 }
@@ -378,11 +386,21 @@ const HEALTHBAR_HEIGHT: f32 = 50.0;
 
 fn draw_healthbar(canvas: &mut graphics::Canvas, actor: &Actor, screen_h: f32) {
     let container = graphics::Rect::new(25.0, screen_h - 75.0, HEALTHBAR_WIDTH, HEALTHBAR_HEIGHT);
-    
+
     let bar_width = (actor.life / GROUND_LIFE) * (HEALTHBAR_WIDTH - 10.0);
-    let bar_color = Color::new((255.0 - ((actor.life / GROUND_LIFE) * 255.0)) / 255.0, ((actor.life / GROUND_LIFE) * 255.0) / 255.0, 0.0, 1.0);
-    let health_bar = graphics::Rect::new(25.0 + 5.0, screen_h - 75.0 + 5.0, bar_width, HEALTHBAR_HEIGHT - 10.0);
-    
+    let bar_color = Color::new(
+        1.0 - actor.life / GROUND_LIFE,
+        actor.life / GROUND_LIFE,
+        0.0,
+        1.0,
+    );
+    let health_bar = graphics::Rect::new(
+        25.0 + 5.0,
+        screen_h - 75.0 + 5.0,
+        bar_width,
+        HEALTHBAR_HEIGHT - 10.0,
+    );
+
     canvas.draw(
         &graphics::Quad,
         graphics::DrawParam::new()
