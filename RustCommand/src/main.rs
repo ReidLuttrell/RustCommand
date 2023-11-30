@@ -555,19 +555,10 @@ impl EventHandler for MainState {
 }
 
 pub fn main() -> GameResult {
-    let resource_dir = if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
-        let mut path = path::PathBuf::from(manifest_dir);
-        path.push("resources");
-        path
-    } else {
-        path::PathBuf::from("./resources")
-    };
-
     let cb = ContextBuilder::new("rustcommand", "Reid Luttrell")
         .window_setup(conf::WindowSetup::default().title("RustCommand"))
-        .window_mode(conf::WindowMode::default().dimensions(1280.0, 760.0))
-        .add_resource_path(resource_dir);
-
+        .window_mode(conf::WindowMode::default().dimensions(1280.0, 760.0));
+    
     let (mut ctx, events_loop) = cb.build()?;
 
     let game = MainState::new(&mut ctx)?;
