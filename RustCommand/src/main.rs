@@ -1,3 +1,5 @@
+use core::num;
+
 use ggez::conf;
 use ggez::event::{self, EventHandler};
 use ggez::glam::*;
@@ -7,8 +9,6 @@ use ggez::input::keyboard::KeyInput;
 use ggez::timer;
 use ggez::{Context, ContextBuilder, GameResult};
 use oorandom::Rand32;
-use std::env;
-use std::path;
 
 type Point2 = Vec2;
 
@@ -165,8 +165,12 @@ struct MainState {
     shot_timeout: f32,
     rocket_delay: f32,
     rng: Rand32,
+    level_timer: f32,
+    level: u32,
     score: i32,
 }
+
+const LEVEL_TIME: f32 = 15.0;
 
 impl MainState {
     fn new(ctx: &mut Context) -> GameResult<MainState> {
@@ -174,10 +178,7 @@ impl MainState {
         println!("Use arrow keys to move cursor");
         println!("Use space to fire an interceptor");
 
-        // rng generator from ggez example
-        let mut seed: [u8; 8] = [0; 8];
-        getrandom::getrandom(&mut seed[..]).expect("Could not create RNG seed");
-        let rng = Rand32::new(u64::from_ne_bytes(seed));
+        let rng = Rand32::new(1337);
 
         let player = create_player_cursor();
 
@@ -193,6 +194,8 @@ impl MainState {
             shot_timeout: 0.0,
             rocket_delay: ROCKET_DELAY,
             rng,
+            level_timer: LEVEL_TIME,
+            level: 1,
             score: 0,
         };
 
@@ -316,6 +319,7 @@ fn draw_rocket(
     ctx: &mut Context,
     actor: &Actor,
     world_coords: (f32, f32),
+    level: u32,
 ) {
     let (screen_w, screen_h) = world_coords;
 
@@ -330,7 +334,14 @@ fn draw_rocket(
     ];
 
     // tracer line
-    let line = graphics::Mesh::new_line(ctx, points, 5.0, Color::GREEN).unwrap();
+    let mut modifier = level as f32 / 10.0;
+
+    if modifier > 1.0 {
+        modifier = 1.0;
+    }
+
+    let tracer_color = Color::new(modifier, 1.0 - modifier, 0.0, 1.0);
+    let line = graphics::Mesh::new_line(ctx, points, 5.0, tracer_color).unwrap();
 
     canvas.draw(&line, Vec2::new(0.0, 0.0));
 
@@ -425,6 +436,12 @@ impl EventHandler for MainState {
         while ctx.time.check_update_time(DESIRED_FPS) {
             let seconds = 1.0 / (DESIRED_FPS as f32);
 
+            self.level_timer -= seconds;
+            if self.level_timer <= 0.0 {
+                self.level += 1;
+                self.level_timer = LEVEL_TIME;
+            }
+
             cursor_move(
                 &mut self.player,
                 self.screen_width,
@@ -441,8 +458,10 @@ impl EventHandler for MainState {
 
             self.rocket_delay -= seconds;
 
+            let num_rockets = self.rng.rand_range((1 + self.level)..(3 + self.level));
+
             if self.rocket_delay <= 0.0 {
-                for rocket in self.create_rockets(4, self.screen_width, self.screen_height) {
+                for rocket in self.create_rockets(num_rockets, self.screen_width, self.screen_height) {
                     self.rockets.push(rocket);
                 }
             }
@@ -475,29 +494,33 @@ impl EventHandler for MainState {
     fn draw(&mut self, ctx: &mut Context) -> GameResult {
         let mut canvas = graphics::Canvas::from_frame(ctx, Color::BLACK);
 
-        {
-            let coords = (self.screen_width, self.screen_height);
-            let p = &self.player;
+        let coords = (self.screen_width, self.screen_height);
 
-            draw_ground(&mut canvas, coords);
+        draw_ground(&mut canvas, coords);
 
-            draw_cursor(&mut canvas, p, coords);
+        draw_cursor(&mut canvas, &self.player, coords);
 
-            for rocket in &self.rockets {
-                draw_rocket(&mut canvas, ctx, rocket, coords);
-            }
-
-            for interceptor in &self.interceptors {
-                draw_interceptor(&mut canvas, ctx, interceptor, coords);
-            }
-
-            draw_healthbar(&mut canvas, p, coords.1);
+        for rocket in &self.rockets {
+            draw_rocket(&mut canvas, ctx, rocket, coords, self.level);
         }
+
+        for interceptor in &self.interceptors {
+            draw_interceptor(&mut canvas, ctx, interceptor, coords);
+        }
+
+        draw_healthbar(&mut canvas, &self.player, coords.1);
 
         canvas.draw(
             &graphics::Text::new(format!("Score: {}", self.score)),
             graphics::DrawParam::new()
                 .dest(Vec2::new(self.screen_width / 2.0, 10.0))
+                .color(Color::WHITE),
+        );
+
+        canvas.draw(
+            &graphics::Text::new(format!("Level: {}", self.level)),
+            graphics::DrawParam::new()
+                .dest(Vec2::new(20.0, 10.0))
                 .color(Color::WHITE),
         );
 
@@ -558,7 +581,7 @@ pub fn main() -> GameResult {
     let cb = ContextBuilder::new("rustcommand", "Reid Luttrell")
         .window_setup(conf::WindowSetup::default().title("RustCommand"))
         .window_mode(conf::WindowMode::default().dimensions(1280.0, 760.0));
-    
+
     let (mut ctx, events_loop) = cb.build()?;
 
     let game = MainState::new(&mut ctx)?;
