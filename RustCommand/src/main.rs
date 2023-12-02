@@ -1,5 +1,3 @@
-use core::num;
-
 use ggez::conf;
 use ggez::event::{self, EventHandler};
 use ggez::glam::*;
@@ -174,7 +172,7 @@ const LEVEL_TIME: f32 = 15.0;
 
 impl MainState {
     fn new(ctx: &mut Context) -> GameResult<MainState> {
-        println!("RustCommand Instructions:");
+        println!("rust_command Instructions:");
         println!("Use arrow keys to move cursor");
         println!("Use space to fire an interceptor");
 
@@ -461,7 +459,9 @@ impl EventHandler for MainState {
             let num_rockets = self.rng.rand_range((1 + self.level)..(3 + self.level));
 
             if self.rocket_delay <= 0.0 {
-                for rocket in self.create_rockets(num_rockets, self.screen_width, self.screen_height) {
+                for rocket in
+                    self.create_rockets(num_rockets, self.screen_width, self.screen_height)
+                {
                     self.rockets.push(rocket);
                 }
             }
@@ -578,8 +578,8 @@ impl EventHandler for MainState {
 }
 
 pub fn main() -> GameResult {
-    let cb = ContextBuilder::new("rustcommand", "Reid Luttrell")
-        .window_setup(conf::WindowSetup::default().title("RustCommand"))
+    let cb = ContextBuilder::new("rust_command", "Reid Luttrell")
+        .window_setup(conf::WindowSetup::default().title("rust_command"))
         .window_mode(conf::WindowMode::default().dimensions(1280.0, 760.0));
 
     let (mut ctx, events_loop) = cb.build()?;
