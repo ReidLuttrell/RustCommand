@@ -26,3 +26,5 @@ Retrospect:
 I intended this to be a pretty simplified version of missile command, so to that end I'm pretty satisfied with how it turned out. Missile command, depending on the version has some really good animations, and I wish I would have been able to be more true to them, but they would seriously increase the size and complexity of the code, and the game was getting very large in terms of code size very quickly, so for time constraints and ease of grading, I decided to settle on this approximation. I think the animations I made have their own charm anyways. That being said, in the future I think the next improvement would be making the explosion animations more dynamic and interesting.
 
 License:
+
+https://github.com/ReidLuttrell/RustCommand/blob/main/LICENSE
